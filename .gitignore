@@ -1,0 +1,8 @@
+__pycache__
+*.pyc
+*.csv
+*.pth
+*.log
+data
+weights/
+good_weights/
