@@ -18,21 +18,29 @@ def strong_tta(p=0.9):
         #RandomSizedCrop(p=0.9, min_max_height=(65, 101), height=101, width=101),
     ], p=p)
 
-def strong_aug(p=0.5):
+def strong_aug(p=1.0):
     return Compose([
         HorizontalFlip(),
         Blur(blur_limit=3),
-        GridDistortion(p=.2),
+        #GridDistortion(p=.2),
         #ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.3, rotate_limit=0.0, p=0.7),
         # OneOf([
         #     GridDistortion(p=.2),
         #     ElasticTransform(p=.2)
         # ], p=0.2),
-        RandomContrast(p=.5),
-        RandomBrightness(p=.5),
+        RandomContrast(p=.5, limit=0.2),
+        RandomBrightness(p=.5, limit=0.2),
         RandomGamma(),
-        #RandomSizedCrop(p=0.9, min_max_height=(65, 101), height=101, width=101),
+         #RandomSizedCrop(p=0.9, min_max_height=(65, 101), height=101, width=101),
     ], p=p)
+
+#def strong_aug(p=1.0):
+#    return Compose([
+#                HorizontalFlip(p=.5),
+#                RandomBrightness(p=.2,limit=0.2),
+#                RandomContrast(p=.1,limit=0.2),
+#                ShiftScaleRotate(shift_limit=0.1625, scale_limit=0.3, rotate_limit=0, p=0.7)
+#            ], p=p)
 
 def pad_and_crop(pad_size, crop_size=None, resize_applied=False):
     if crop_size:

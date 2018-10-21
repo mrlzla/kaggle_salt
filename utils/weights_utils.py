@@ -17,6 +17,8 @@ def find_best_weights(weights_path, config=None, mode='max'):
         print(cands[:5])
         if len(cands) > 0:
             weights.append(cands[0])
+        else:
+            weights.append(None)
     #weights = [weights[0], weights[1], weights[4], weights[7], weights[8], weights[9]]
     print(weights)
     

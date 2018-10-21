@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import csv
+import cv2
 import tqdm
 import numpy as np
 import itertools
@@ -13,12 +14,15 @@ from nnet.model_builder import get_model
 from nnet.callbacks import update_lr, save_checkpoint
 from nnet.losses import get_loss
 from nnet.metrics import get_metric
-from dataset.albumentations import strong_tta
+from dataset.albumentations import strong_tta, pad_and_crop
 from dataset.data_loader import Dataset, Sampler, BatchSampler
 from torch.backends import cudnn
 from config import config
 from utils.weights_utils import find_best_weights, restore_model
 from utils.rle import rle_encoding, mask_to_rles
+from skimage.morphology import remove_small_objects
+from skimage.morphology import remove_small_holes
+from skimage.morphology import label
 
 def crop(img, h, w):
     new_h, new_w = img.shape
@@ -34,40 +38,44 @@ def test(args, cfg):
             'cuda' if args.gpu=="0" else 'cpu')
     if args.weights:
         if os.path.isdir(args.weights):
-            weights = find_best_weights(args.weights.split('/')[0], cfg)
+            weights = find_best_weights(args.weights, cfg)
+            weights = [weights[0], weights[1]]
+            print(weights)
             models = [restore_model(get_model(), weight) for weight in weights]
-            models += [get_model(freeze=True) for _ in range(cfg.kfolds - len(models))]
         else:
             models = [restore_model(get_model(), args.weights)]
     else:
         models = [get_model(freeze=True) for _ in range(cfg.kfolds)]
+    for model in models:
+        model.eval()
     with open('csv/res_{}.csv'.format(args.weights.split('/')[1]), 'w') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['id', 'rle_mask'])
-        fold=0
-        model = models[fold]
-        model.eval()
-        model.to(device)
-        test_set = Dataset(args.datadir, config, phase='test', fold_idx=fold, mean=model.mean, std=model.std)
+        test_set = Dataset(args.datadir, config, phase='test', fold_idx=None, mean=model.mean, std=model.std)
         test_loader = DataLoader(test_set, batch_size=1, shuffle=False)
-        tta = strong_tta()
+        tta = pad_and_crop(224)
                 
         for image, depth, image_id, zero_flag in tqdm.tqdm(test_loader):
             if zero_flag.numpy()[0]:
                 mask = np.zeros([cfg.h, cfg.w, 1], dtype=np.uint8)
             else:
                 image = image.to(device)
-                if cfg.use_tta:
-                    inp_dict = {'image': image}
-                    inp_dict = tta(**inp_dict)
-                    image = inp_dict['image']
                 depth = depth.to(device)
                 image = torch.cat([image, image.flip(3)], dim=0)
                 depth = torch.cat([depth, depth], dim=0)
-                y_pred = model(image, depth)
-                logits = torch.cat([y_pred[0].unsqueeze(0), y_pred[1].unsqueeze(0).flip(3)], dim=0).mean(dim=0)
-                mask = (logits>0.5).byte().squeeze(0).cpu().numpy()
-                mask = crop(mask, cfg.h, cfg.w)[:, :, np.newaxis]
+                logits = torch.zeros(128, 128, dtype=torch.float32).to(device)
+                for model in models:
+                    model.to(device)
+                    y_pred = model(image, depth)
+                    logits += torch.cat([y_pred[0].unsqueeze(0), y_pred[1].unsqueeze(0).flip(3)], dim=0).mean(dim=0).squeeze(0)
+                mask = ((logits / len(models))>0.5).byte().cpu().numpy()
+                if cfg.use_tta:
+                    mask = pad_and_crop(224, 202)(image=mask)['image']
+                    mask = cv2.resize(mask, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+                else:
+                    mask = crop(mask, cfg.h, cfg.w)[:, :, np.newaxis]
+            mask = remove_small_objects(label(mask), 10).astype(np.uint8)
+            mask[mask > 1] = 1
             rles = list(mask_to_rles(mask))
             for rle in rles:
                 writer.writerow(

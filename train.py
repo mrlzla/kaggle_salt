@@ -25,30 +25,30 @@ def train(args, cfg):
     if args.weights:
         #import ipdb; ipdb.set_trace()
         weights = find_best_weights(args.weights, cfg)
-        end = cfg.start_fold if cfg.start_cycle == 0 else cfg.start_fold + 1
-        models = [restore_model(get_model(), weight) for weight in weights[:end]]
-        models += [get_model(freeze=True) for _ in range(cfg.kfolds - len(models))]
+        #end = cfg.start_fold if cfg.start_cycle == 0 else cfg.start_fold + 1
+        models = [restore_model(get_model(), weight) if weight else get_model(freeze=True) for weight in weights]
     else:
         models = [get_model(freeze=True) for _ in range(cfg.kfolds)]
+    lr = cfg.lr
     for fold in range(cfg.start_fold, cfg.kfolds):
-        if fold in [0, 1, 2]:
-            continue
-        best_metric = float(weights[fold].split('-')[3]) if args.weights and len(weights) > fold else -np.inf
+        #if fold in [0, 1, 2]:
+        #    continue
+        best_metric = float(weights[fold].split('-')[3]) if args.weights and weights[fold]  else -np.inf
         best_tta_metric = -np.inf
         start_cycle = cfg.start_cycle if fold == cfg.start_fold else 0
-        lr = cfg.start_lr if fold == cfg.start_fold else cfg.lr
-        alpha_zero = cfg.start_lr if fold == cfg.start_fold else cfg.lr
-
+        
         for cycle in range(start_cycle, cfg.num_cycles):
-            if cycle != start_cycle and best_metric < 0.83:
+            #import ipdb; ipdb.set_trace()
+            lr = cfg.start_lr if fold == cfg.start_fold and cycle==cfg.start_cycle else lr
+            alpha_zero = lr
+
+            if cycle != 0 and best_metric < 0.83:
                 break
-            if cycle != 0:
-                alpha_zero = lr
             model = models[fold]
             print(sum(p.numel() for p in model.parameters()))
             print("Best metric is {}".format(best_metric))
             optimizer = torch.optim.Adam(model.parameters(), lr = lr) if cycle == 0 else torch.optim.RMSprop(model.parameters(), lr = lr)
-            lr_scheduler = ReduceLROnPlateau(optimizer, 'max', factor=cfg.lr_mult, patience=10, verbose=True)
+            lr_scheduler = ReduceLROnPlateau(optimizer, 'max', factor=cfg.lr_mult, patience=16, verbose=True)
             metric_fn = get_metric()
             model.to(device)
             train_set = Dataset(args.datadir, config, phase='train', fold_idx=fold, mean=model.mean, std=model.std)
@@ -115,7 +115,8 @@ def train(args, cfg):
 
             
             num_epochs = cfg.num_epochs if cycle > 0 else cfg.start_epochs
-            for epoch in range(cfg.num_epochs):
+            start_epoch = cfg.start_epoch if cycle==start_cycle and fold==cfg.start_fold else 0
+            for epoch in range(start_epoch, num_epochs):
                 loss_fn = get_loss(cycle)
                 print(loss_fn)
                 print(train_set.pad_size, " ", train_set.crop_size)
@@ -131,9 +132,12 @@ def train(args, cfg):
                                                                                                                np.mean(val_loss), np.mean(val_metric),
                                                                                                                np.mean(val_tta_loss), np.mean(val_tta_metric),
                                                                                                                ))
-                if cycle > 0:
-                    lr = update_lr(optimizer, cfg, lr, epoch, alpha_zero=alpha_zero, verbose=1)
+                lr = update_lr(optimizer, cfg, lr, epoch, alpha_zero=alpha_zero, verbose=1)
+                
                 lr_scheduler.step(np.mean(val_metric))
+                new_lr = optimizer.param_groups[0]['lr']
+                if abs(new_lr - lr) > 1e-7:
+                    alpha_zero = max(lr*cfg.lr_mult, 1.6e-5)
                 best_metric, best_tta_metric = save_checkpoint(model, np.mean(val_metric), best_metric, np.mean(val_tta_metric), best_tta_metric, fold, epoch, verbose=1)
 
 

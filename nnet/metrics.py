@@ -26,7 +26,7 @@ def iou_pytorch(outputs, labels):
 # Numpy version
 # Well, it's the same function, so I'm going to omit the comments
 
-def iou_numpy(outputs: np.array, labels: np.array):
+def iou_numpy(outputs, labels):
     outputs = outputs.squeeze(1)
     
     intersection = (outputs & labels).sum((1, 2))

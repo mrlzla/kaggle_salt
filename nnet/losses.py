@@ -275,13 +275,16 @@ def bce_dice_loss(input, label):
 def bce_lovasz_loss(input, target):
     return 0.1*F.binary_cross_entropy_with_logits(input, target) + 0.9*lovasz_hinge(input, target)
 
+def symmetric_lovasz(input, target):
+    return (lovasz_hinge(input, target) + lovasz_hinge(-input, 1-target)) / 2
+
 def get_loss(cycle, freeze_epochs=False):
     if freeze_epochs:
         return lovasz_hinge
     #elif cycle == 0:
     #    return np.random.choice([bce_dice_loss, bce_dice_loss, lovasz_hinge, bce_lovasz_loss])
     else:
-        return bce_lovasz_loss
+        return symmetric_lovasz
     # if cycle % 2 == 0:
     #     return np.random.choice([FocalLoss(), bce_dice_loss, dice_loss, lovasz_hinge, bce_lovasz_loss])
     # else:

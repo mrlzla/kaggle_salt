@@ -83,7 +83,7 @@ class Sampler(data.Sampler):
         return len(self.data_source)
 
     def update(self):
-        resize_applied = random.random() < 0.1
+        resize_applied = False
         self.resize_applied = resize_applied
         self.data_source.pad_size = np.random.choice(self.pad_sizes) if not resize_applied else np.random.choice(self.pad2_sizes)
         self.data_source.crop_size = np.random.choice(list(filter(lambda x: x <= self.data_source.pad_size, self.crop_sizes))[-3:]) if not resize_applied else \
@@ -147,14 +147,14 @@ class Dataset(data.Dataset):
         self.new_h = int(np.ceil(self.h / config.output_stride) * config.output_stride)
         self.new_w = int(np.ceil(self.w / config.output_stride) * config.output_stride)
         self.size = (self.new_h, self.new_w)
-        self.pad_size=128
-        self.crop_size=128
+        self.pad_size=192
+        self.crop_size=192
         self.up_size=224
         self.use_tta=use_tta
         self.use_resize=config.use_resize
         self.resize_applied = False if not self.use_tta else True
 
-        self.albumentations = strong_aug(p=0.9)
+        self.albumentations = strong_aug()
         self.tta = strong_tta()
         self.transform = T.Compose([
             T.ToTensor(),
@@ -171,6 +171,8 @@ class Dataset(data.Dataset):
             self.df = self.df.join(self.depths_df)
             self.df['masks'] = [np.clip(imread(os.path.join(self.masks_path, filename + '.png'), as_gray=True), 0, 255)  for filename in tqdm(self.df.index)]
             self.df["coverage"] = self.df.masks.map(lambda x: x / 255.0).map(np.sum)
+            #print(self.df.coverage.max())
+            #self.df.masks[self.df.coverage == 0].map(lambda x: 255*np.ones([101, 101])) 
             self.df['images'] = [imread(os.path.join(self.images_path, filename + '.png'))[:, :, :3] for filename in tqdm(self.df.index)]
             self.df['coverage_images'] = self.df.images.map(lambda x: x / 255.0).map(np.sum)
             self.df = self.df[self.df.coverage_images > 0]
@@ -179,8 +181,8 @@ class Dataset(data.Dataset):
                     if val / self.h / self.w * 10 <= i :
                         return i
             self.df["coverage_class"] = self.df.coverage.map(cov_to_class)
-            #self.df.sort_values(by=["coverage_class", "z"])
-            self.df = self.df.sample(frac=1, random_state=12)
+            self.df.sort_values(by=["coverage_class", "z"])
+            #self.df = self.df.sample(frac=1, random_state=12)
             self.folds = [[] for _ in range(config.kfolds)]
             for i in range(0, 11):
                 class_items = self.df.index[self.df.coverage_class == i]  
@@ -227,8 +229,13 @@ class Dataset(data.Dataset):
             else:
                 return self.transform(img), 0, T.ToTensor()(mask)
         else:
-            inp_dict = {'image' : img}
-            img = pad_and_crop(self.size[0])(**inp_dict)['image']
+            if self.use_tta:
+                img = cv2.resize(img, None, fx=2, fy=2, interpolation= cv2.INTER_NEAREST)
+                inp_dict = {'image' : img}
+                img = pad_and_crop(self.up_size)(**inp_dict)['image']
+            else:
+                inp_dict = {'image' : img}
+                img = pad_and_crop(128)(**inp_dict)['image']
             if self.config.use_depth:
                 depth_val = self.depths_df.z[self.data[index]]
                 mean = 506.453

@@ -211,21 +211,19 @@ class AlbuNet(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
         self.sigmoid = nn.Sigmoid()
-        
-        #import ipdb; ipdb.set_trace()
 
-        conv1 = self.encoder.layer0.conv1
+        layers_0 = [x for x in self.encoder.layer0.children()]
+
+        conv1 = layers_0[0]
         #conv1 = self.encoder.conv1
         conv1.stride = (1, 1)
 
         self.conv1 = nn.Sequential(
-            conv1,
-            self.encoder.layer0.bn1,
-            self.encoder.layer0.relu1
+            conv1, *layers_0[1:-1]
         )
 
         self.conv2 = nn.Sequential(
-            self.encoder.layer0.pool,
+            layers_0[-1],
             self.encoder.layer1
         )
 
